@@ -1,4 +1,5 @@
 mod audio;
+mod dsp;
 
 use std::thread;
 
