@@ -41,7 +41,7 @@ fn capture_thread(mut producer: impl Producer<Item = f32> + Send + 'static){
     let host                        = cpal::default_host();
     let device                      = host.default_input_device().expect("no input found");
     let stream_config: StreamConfig = device.default_input_config().expect("no default input config").into();
-
+    
     let stream = device.build_input_stream(
         stream_config, 
         move |clip: &[f32], _: &InputCallbackInfo| { producer.push_slice(clip);},
@@ -59,7 +59,8 @@ fn capture_thread(mut producer: impl Producer<Item = f32> + Send + 'static){
 
 
 fn processer_thread(mut consumer: impl Consumer<Item = f32>, sample_rate: f32){
-    let mut fft    = dsp::FftProcessor::new(sample_rate, FFT_WINDOW_SIZE);
+    let window: Vec<f32> = (0..FFT_WINDOW_SIZE).map(|i| 0.5 - 0.5*(2.0 * std::f32::consts::PI*i as f32/(FFT_WINDOW_SIZE as f32-1.0)).cos()).collect();
+    let mut fft    = dsp::FftProcessor::new(window, sample_rate, FFT_WINDOW_SIZE);
     let file       = File::create(READINGS_CSV_PATH).expect("failed to create readings csv");
     let mut writer = BufWriter::new(file);
     writeln!(writer, "amplitude,db,freq_hz").expect("failed to write csv header");
