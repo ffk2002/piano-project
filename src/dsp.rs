@@ -14,6 +14,8 @@ pub struct FftProcessor{
     window_size : usize,
     sample_rate : f32,
     buff        : Vec<f32>,
+    hps         : Vec<Complex32>,
+    spectrum    : Vec<Complex32>,
     planner     : FftPlanner<f32>,
 }
 
@@ -27,7 +29,9 @@ impl FftProcessor{
             hann,
             window_size,
             sample_rate,
-            buff: Vec::with_capacity(window_size),
+            buff: vec![f32::default(); window_size],
+            hps: vec![Complex32::default(); window_size/2],
+            spectrum: vec![Complex32::default(); window_size/2],
             planner: FftPlanner::new(),
         }
     }
@@ -44,19 +48,27 @@ impl FftProcessor{
         }else{
             //apply hann window to smooth edges of the window
             //create spectrum array of complex vals 
-            let mut spectrum: Vec<Complex32> = std::iter::zip(&self.hann, &self.buff[..self.window_size])
+            self.spectrum = std::iter::zip(&self.hann, &self.buff[..self.window_size])
                 .map(|(&w, &s)| Complex32::new(w * s, 0.0))
                 .collect();
             self.buff.drain(..self.window_size);
             let fft = self.planner.plan_fft_forward(self.window_size);
-            fft.process(&mut spectrum);
+            fft.process(&mut self.spectrum);
 
 
             //get freq with max energy
             // let (bin, _mag) = spectrum[1..self.window_size/2].iter().enumerate()
             //             .max_by(|(_, a), (_,b)| a.norm().partial_cmp(&b.norm()).unwrap())?;
+            // implement hps in order to account for attenuations and higher multiple harmonics
+            self.hps.copy_from_slice(&self.spectrum[..self.window_size/2]);
+            for k in 2..=4{
+                for i in 0..(self.window_size/2)/k{
+                    self.hps[i]*=self.spectrum[i*k];     
+                } 
+            }
 
-            let bin = self.suppressions(&spectrum).unwrap() +1;
+            //apply suppressions to smooth out noise and pick highest energy bin
+            let bin = self.suppressions().unwrap() +1;
 
             // the index of the bin containing the freq map
             Some((bin as f32)*self.sample_rate/(self.window_size as f32))
@@ -65,9 +77,9 @@ impl FftProcessor{
 
 
     //used to suppress background noises with enough energy to dominate over notes
-    pub fn suppressions(&mut self, spectrum: &Vec<Complex32>) -> Option<usize> {
+    pub fn suppressions(&mut self) -> Option<usize> {
         //find peak bin and mag
-        let area = &spectrum[1..self.window_size/2];
+        let area:&[Complex32]= &self.hps;
         let mut peak_bin = 0usize;
         let mut peak_mag = 0.0f32;
         let mut mag_sum = 0.0f32;
